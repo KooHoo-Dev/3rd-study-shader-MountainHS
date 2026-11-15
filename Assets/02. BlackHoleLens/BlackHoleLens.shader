@@ -53,15 +53,23 @@ Shader "Custom/BlackHoleLens"
                 float4 positionCS : SV_POSITION;
                 float3 positionWS : TEXCOORD0;
                 float3 normalWS   : TEXCOORD1;
+                float2 centerUV   : TEXCOORD2; // 오브젝트 원점의 화면 UV. 모든 정점이 같은 값이라 보간해도 그대로다.
             };
 
-            // 정점 셰이더: 표준 변환만 한다. 위치/월드 법선을 프래그먼트로 넘긴다.
+            // 정점 셰이더: 표준 변환 + 회전 축(오브젝트 원점의 화면 UV) 계산.
+            // centerUV 는 픽셀마다 같은 값이라 frag 대신 정점마다 한 번만 계산해서 넘긴다.
             Varyings vert(Attributes input)
             {
                 Varyings output;
                 output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
                 output.positionWS = TransformObjectToWorld(input.positionOS.xyz);
                 output.normalWS = TransformObjectToWorldNormal(input.normalOS);
+
+                // 오브젝트 원점을 클립 -> 화면 UV로 투영. 회전 축이 된다.
+                float4 centerCS = TransformWorldToHClip(UNITY_MATRIX_M._m03_m13_m23);
+                float2 centerUV = centerCS.xy / centerCS.w * 0.5 + 0.5;
+                if (_ProjectionParams.x < 0) centerUV.y = 1 - centerUV.y; // 플랫폼별 상하 뒤집힘 보정 (ComputeScreenPos와 같은 방식)
+                output.centerUV = centerUV;
                 return output;
             }
 
@@ -70,10 +78,8 @@ Shader "Custom/BlackHoleLens"
                 // 1. 이 픽셀의 화면 위치 (화면 사진을 읽을 주소)
                 float2 screenUV = GetNormalizedScreenSpaceUV(input.positionCS);
 
-                // 2. 오브젝트 원점을 클립 -> 화면 UV로 투영. 회전 축이 된다.
-                float4 centerCS = TransformWorldToHClip(UNITY_MATRIX_M._m03_m13_m23);
-                float2 centerUV = centerCS.xy / centerCS.w * 0.5 + 0.5;
-                if (_ProjectionParams.x < 0) centerUV.y = 1 - centerUV.y; // 플랫폼별 상하 뒤집힘 보정 (ComputeScreenPos와 같은 방식)
+                // 2. 회전 축: 오브젝트 원점의 화면 UV (vert 에서 계산)
+                float2 centerUV = input.centerUV;
 
                 // 3. facing: 구 중심 1, 외곽선 0
                 float3 N = normalize(input.normalWS);
